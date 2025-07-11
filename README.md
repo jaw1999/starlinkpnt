@@ -9,7 +9,6 @@ This repository contains multiple scripts for different use cases:
 1. **`starlink_nmea_fallback.py`** - Advanced GPS/Starlink fallback system (main script)
 2. **`starlinkpnt.sh`** - Real-time Starlink PNT monitoring with NTP sync
 3. **`starlink_to_gpsd.sh`** - Convert Starlink PNT to NMEA for GPSD
-4. **`starlink_to_mavlink.sh`** - Convert Starlink PNT to MAVLink for drones/GCS
 
 ## Scripts Overview
 
@@ -41,15 +40,6 @@ Converts Starlink PNT data to NMEA format for use with GPSD.
 - **NMEA Generation**: Creates GGA, RMC, GSA sentences
 - **Named Pipe**: Creates pipe for GPSD consumption
 - **High-Speed Updates**: Configurable update rate (default 5Hz)
-
-### 🚁 **MAVLink Bridge: `starlink_to_mavlink.sh`**
-Converts Starlink PNT data to MAVLink format for use with drone autopilots and GCS software.
-
-**Features:**
-- **MAVLink v1 Messages**: HEARTBEAT, GPS_RAW_INT, GLOBAL_POSITION_INT, GPS_STATUS
-- **UDP Output**: Sends data via UDP (default: 127.0.0.1:14550)
-- **High-Speed Updates**: Default 10Hz update rate
-- **Compatible**: Works with Mission Planner, QGroundControl, ArduPilot, PX4
 
 ## Features
 
@@ -263,32 +253,6 @@ sudo gpsd -N -D 2 /tmp/starlink_nmea
 - Creates a named pipe for GPSD consumption
 - High-speed updates (configurable, default 5Hz)
 
-### 4. MAVLink Bridge (`starlink_to_mavlink.sh`)
-
-**Usage:**
-```bash
-# Normal mode
-./starlink_to_mavlink.sh
-
-# Debug mode (shows detailed message sending info)
-DEBUG_MAVLINK=true ./starlink_to_mavlink.sh
-```
-
-**Configuration:**
-Edit the script to change these parameters:
-- `MAVLINK_UDP_IP`: Target IP address (default: 127.0.0.1)
-- `MAVLINK_UDP_PORT`: Target UDP port (default: 14550)
-- `MAVLINK_SYSTEM_ID`: MAVLink system ID (default: 01)
-- `MAVLINK_COMPONENT_ID`: Component ID (default: dc - GPS component)
-- `UPDATE_INTERVAL`: Update rate in seconds (default: 0.1 = 10Hz)
-
-**Compatible with:**
-- Mission Planner
-- QGroundControl
-- ArduPilot
-- PX4
-- Any MAVLink-compatible ground control station
-
 ### Systemd Service (Optional)
 
 Create a systemd service for automatic startup:
@@ -488,26 +452,7 @@ ps aux | grep gpsd
 journalctl -u gpsd
 ```
 
-#### 5. MAVLink data not received
-```bash
-# Check UDP port is not blocked by firewall
-sudo ufw status
-
-# Verify ground control station is listening on the correct port
-netstat -uln | grep 14550
-
-# Use tcpdump to monitor UDP traffic
-sudo tcpdump -i lo udp port 14550
-```
-
-#### 6. grpcurl not found
-```bash
-# Install grpcurl
-sudo apt update
-sudo apt install grpcurl
-```
-
-#### 7. Performance Issues
+#### 5. Performance Issues
 ```bash
 # Monitor CPU usage
 top
@@ -536,12 +481,6 @@ ntpdate -q 192.168.100.1
 echo "$GPGGA,000000.00,,,,,0,0,,0.0,M,0.0,M,,*66" > /tmp/starlink_nmea_fallback
 ```
 
-#### Test MAVLink output
-```bash
-# Listen on UDP port to see raw MAVLink data
-nc -ul 14550 | hexdump -C
-```
-
 ## Data Format Examples
 
 ### NMEA Output (GPSD scripts)
@@ -550,12 +489,6 @@ $GPGGA,123456,4807.038,N,01131.000,E,1,04,1.0,545.4,M,46.9,M,,*47
 $GPRMC,123456,A,4807.038,N,01131.000,E,0.0,0.0,230394,,,*1E
 $GPGSA,A,3,,,,,,,,,,,,,1.0,1.0,1.0*30
 ```
-
-### MAVLink Messages (MAVLink script)
-- **HEARTBEAT (ID 0)**: System status
-- **GPS_RAW_INT (ID 24)**: Raw GPS data with accuracy
-- **GLOBAL_POSITION_INT (ID 33)**: Position in global coordinates
-- **GPS_STATUS (ID 25)**: Satellite information
 
 ### Fallback NMEA (Complete set)
 ```
@@ -584,9 +517,6 @@ ntpdate -q 192.168.100.1
 
 # Test pipe communication
 echo "$GPGGA,000000.00,,,,,0,0,,0.0,M,0.0,M,,*66" > /tmp/starlink_nmea_fallback
-
-# Test MAVLink output
-nc -ul 14550 | hexdump -C
 ```
 
 ## Important Notes
