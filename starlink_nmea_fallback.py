@@ -13,15 +13,15 @@ STARLINK_IP = "192.168.100.1"
 STARLINK_PORT = "9200"
 PRIMARY_GPS_DEVICE = "/dev/ttyACM0"
 PRIMARY_GPS_BAUD = 4800
-LOCK_LOSS_THRESHOLD = 120  # seconds
-UPDATE_INTERVAL = 0.2  # seconds
+LOCK_LOSS_THRESHOLD = 120
+UPDATE_INTERVAL = 0.2
 GPS_PIPE = "/tmp/starlink_nmea_fallback"
 
 # NTP Configuration
-NTP_SERVER = "192.168.100.1"  # Starlink NTP server
-NTP_TIMEOUT = 3  # seconds
-NTP_UPDATE_INTERVAL = 60  # seconds between NTP syncs
-USE_NTP = True  # Enable NTP time synchronization
+NTP_SERVER = "192.168.100.1"
+NTP_TIMEOUT = 3
+NTP_UPDATE_INTERVAL = 60
+USE_NTP = True
 
 # State
 last_gps_data_time = 0
@@ -65,7 +65,6 @@ def sync_ntp_time():
     
     current_time = time.time()
     
-    # Skip if recently synced
     if current_time - ntp_last_sync < NTP_UPDATE_INTERVAL:
         return ntp_available
     
@@ -74,7 +73,6 @@ def sync_ntp_time():
         return False
     
     try:
-        # Use ntpdate to query NTP server
         result = subprocess.run(
             ['ntpdate', '-q', NTP_SERVER],
             capture_output=True,
@@ -83,10 +81,8 @@ def sync_ntp_time():
         )
         
         if result.returncode == 0 and result.stdout:
-            # Parse ntpdate output: "server 192.168.100.1, stratum 1, offset +0.004257, delay 0.02939"
             for line in result.stdout.split('\n'):
                 if 'offset' in line:
-                    # Extract offset value
                     import re
                     match = re.search(r'offset\s+([+-]?\d+\.?\d*)', line)
                     if match:
@@ -139,7 +135,6 @@ def get_starlink_pnt():
         lat = lla.get('lat')
         lon = lla.get('lon')
         alt = lla.get('alt')
-        # No accuracy field in this output, so leave as None
     except Exception as e:
         print(f"Starlink get_location error: {e}")
     try:
@@ -178,8 +173,6 @@ def get_starlink_sentences():
     nmea_lon_str = nmea_lon(lon)
     fix_quality = 1 if gps_valid else 0
     sentences = []
-    # For each sentence, get a fresh NTP-corrected timestamp
-    # GGA
     if ntp_available:
         ntp_time = get_ntp_timestamp()
         now = datetime.utcfromtimestamp(ntp_time)
@@ -191,7 +184,6 @@ def get_starlink_sentences():
     for c in gga[1:]:
         checksum ^= ord(c)
     sentences.append(f"{gga}*{checksum:02X}")
-    # RMC
     if ntp_available:
         ntp_time = get_ntp_timestamp()
         now = datetime.utcfromtimestamp(ntp_time)
@@ -204,7 +196,6 @@ def get_starlink_sentences():
     for c in rmc[1:]:
         checksum ^= ord(c)
     sentences.append(f"{rmc}*{checksum:02X}")
-    # VTG
     if ntp_available:
         ntp_time = get_ntp_timestamp()
         now = datetime.utcfromtimestamp(ntp_time)
@@ -216,7 +207,6 @@ def get_starlink_sentences():
     for c in vtg[1:]:
         checksum ^= ord(c)
     sentences.append(f"{vtg}*{checksum:02X}")
-    # GLL
     if ntp_available:
         ntp_time = get_ntp_timestamp()
         now = datetime.utcfromtimestamp(ntp_time)
@@ -228,7 +218,6 @@ def get_starlink_sentences():
     for c in gll[1:]:
         checksum ^= ord(c)
     sentences.append(f"{gll}*{checksum:02X}")
-    # GSA
     if ntp_available:
         ntp_time = get_ntp_timestamp()
         now = datetime.utcfromtimestamp(ntp_time)
@@ -240,7 +229,6 @@ def get_starlink_sentences():
     for c in gsa[1:]:
         checksum ^= ord(c)
     sentences.append(f"{gsa}*{checksum:02X}")
-    # ZDA
     if ntp_available:
         ntp_time = get_ntp_timestamp()
         now = datetime.utcfromtimestamp(ntp_time)
@@ -276,7 +264,6 @@ def main():
     print("Waiting for gpsd to connect...")
     print()
 
-    # Setup signal handlers
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
@@ -285,7 +272,6 @@ def main():
     print("Then start a client like: gpspipe -r")
     print()
     
-    # Initialize NTP if enabled
     if USE_NTP:
         print(f"Initializing NTP synchronization with {NTP_SERVER}...")
         sync_ntp_time()
@@ -298,14 +284,12 @@ def main():
     last_ntp_sync_time = time.time()
     
     while True:
-        # Periodic NTP synchronization
         current_time = time.time()
         if USE_NTP and current_time - last_ntp_sync_time >= NTP_UPDATE_INTERVAL:
             sync_ntp_time()
             last_ntp_sync_time = current_time
         
         try:
-            # Open serial port and pipe separately
             with serial.Serial(PRIMARY_GPS_DEVICE, PRIMARY_GPS_BAUD, timeout=1) as ser:
                 print(f"Opened {PRIMARY_GPS_DEVICE} - starting GPS data stream")
                 while True:
@@ -316,7 +300,6 @@ def main():
                         if fallback_active:
                             print("GPS data resumed, switching back from fallback.")
                             fallback_active = False
-                        # Write to pipe (open/close for each write)
                         try:
                             with open(GPS_PIPE, 'w') as pipe:
                                 pipe.write(line + '\r\n')
@@ -324,7 +307,6 @@ def main():
                         except Exception as e:
                             print(f"Pipe write error: {e}")
                         print(f"GPS: {line}")
-                    # Fallback if no GPS data for threshold
                     if not fallback_active and now - last_gps_data_time > LOCK_LOSS_THRESHOLD:
                         print("No GPS data, switching to Starlink fallback.")
                         fallback_active = True
@@ -338,7 +320,7 @@ def main():
                             except Exception as e:
                                 print(f"Pipe write error: {e}")
                             print(f"FALLBACK: {nmea}")
-                            time.sleep(0.2)  # Match GPS update rate
+                            time.sleep(0.2)
                     else:
                         time.sleep(UPDATE_INTERVAL)
         except serial.SerialException as e:
@@ -346,7 +328,6 @@ def main():
             if not fallback_active:
                 print("Switching to Starlink fallback due to device error.")
                 fallback_active = True
-            # Fallback mode while device is missing
             pipe_error_logged = False
             while fallback_active:
                 sentences = get_starlink_sentences()
@@ -355,7 +336,7 @@ def main():
                         with open(GPS_PIPE, 'w') as pipe:
                             pipe.write(nmea + '\r\n')
                             pipe.flush()
-                        pipe_error_logged = False  # Reset error flag on success
+                        pipe_error_logged = False
                     except BrokenPipeError:
                         if not pipe_error_logged:
                             print("Pipe write error: Broken pipe (no gpsd reader connected)")
@@ -365,8 +346,7 @@ def main():
                     except Exception as e:
                         print(f"Pipe write error: {e}")
                     print(f"FALLBACK: {nmea}")
-                    time.sleep(0.2)  # Match GPS update rate
-                # Try to reconnect every 1 second
+                    time.sleep(0.2)
                 time.sleep(1)
                 if os.path.exists(PRIMARY_GPS_DEVICE):
                     print("GPS device reconnected, resuming normal operation.")
