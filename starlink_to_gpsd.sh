@@ -1,12 +1,21 @@
 #!/bin/bash
 
-set +e 
-set +u  
+set +e
+set +u
 
 readonly STARLINK_IP="192.168.100.1"
 readonly STARLINK_PORT="9200"
-readonly UPDATE_INTERVAL=0.2  
+readonly UPDATE_INTERVAL=0.2
 readonly GPS_PIPE="/tmp/starlink_nmea"
+
+# Cross-platform timeout command
+if command -v gtimeout &> /dev/null; then
+    readonly TIMEOUT_CMD="gtimeout"
+elif command -v timeout &> /dev/null; then
+    readonly TIMEOUT_CMD="timeout"
+else
+    readonly TIMEOUT_CMD=""
+fi
 
 LAT=""
 LON=""
@@ -62,10 +71,8 @@ calculate_checksum() {
 }
 
 get_starlink_data() {
-
     local location_json=""
     local status_json=""
-    
 
     LAT=""
     LON=""
@@ -73,34 +80,66 @@ get_starlink_data() {
     ACCURACY=""
     GPS_SATS="0"
     GPS_VALID="false"
-    
 
-    if location_json=$(timeout 3 grpcurl -plaintext -d '{"get_location":{}}' \
+    # Get location data
+    if location_json=$(${TIMEOUT_CMD} 3 grpcurl -plaintext -d '{"get_location":{}}' \
         "${STARLINK_IP}:${STARLINK_PORT}" \
         SpaceX.API.Device.Device/Handle 2>/dev/null); then
-        
-        if status_json=$(timeout 3 grpcurl -plaintext -d '{"get_status":{}}' \
-            "${STARLINK_IP}:${STARLINK_PORT}" \
-            SpaceX.API.Device.Device/Handle 2>/dev/null); then
-            
-            if [[ -n "$location_json" && -n "$status_json" ]]; then
 
-                LAT=$(echo "$location_json" | grep -oP '"lat":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-                LON=$(echo "$location_json" | grep -oP '"lon":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-                ALT=$(echo "$location_json" | grep -oP '"alt":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-                ACCURACY=$(echo "$location_json" | grep -oP '"sigmaM":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-                
+        if [[ -n "$location_json" ]]; then
+            # Use Python for cross-platform JSON parsing
+            local parsed
+            parsed=$(echo "$location_json" | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    lla = data.get("getLocation", {}).get("lla", {})
+    print(lla.get("lat", ""))
+    print(lla.get("lon", ""))
+    print(lla.get("alt", ""))
+except:
+    print("")
+    print("")
+    print("")
+' 2>/dev/null)
 
-                GPS_SATS=$(echo "$status_json" | grep -oP '"gpsSats":\s*\K[0-9]+' 2>/dev/null || echo "0")
-                GPS_VALID=$(echo "$status_json" | grep -oP '"gpsValid":\s*\K(true|false)' 2>/dev/null || echo "false")
-                
-                return 0
-            fi
+            LAT=$(echo "$parsed" | sed -n '1p')
+            LON=$(echo "$parsed" | sed -n '2p')
+            ALT=$(echo "$parsed" | sed -n '3p')
         fi
     fi
-    
 
-    return 1
+    # Get GPS status data
+    if status_json=$(${TIMEOUT_CMD} 3 grpcurl -plaintext -d '{"get_status":{}}' \
+        "${STARLINK_IP}:${STARLINK_PORT}" \
+        SpaceX.API.Device.Device/Handle 2>/dev/null); then
+
+        if [[ -n "$status_json" ]]; then
+            # Use Python for cross-platform JSON parsing
+            local parsed
+            parsed=$(echo "$status_json" | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    gps_stats = data.get("dishGetStatus", {}).get("gpsStats", {})
+    print(gps_stats.get("gpsSats", "0"))
+    print(str(gps_stats.get("gpsValid", False)).lower())
+except:
+    print("0")
+    print("false")
+' 2>/dev/null)
+
+            GPS_SATS=$(echo "$parsed" | sed -n '1p')
+            GPS_VALID=$(echo "$parsed" | sed -n '2p')
+        fi
+    fi
+
+    # Return success if we got any data
+    if [[ -n "$LAT" && -n "$LON" ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 convert_to_dms() {

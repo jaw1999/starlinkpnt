@@ -1,1 +1,16 @@
-pyserial>=3.5 
+# Python dependencies for starlink_nmea_fallback.py
+pyserial>=3.5
+
+# System dependencies (install via package manager):
+# - grpcurl (required for all scripts)
+# - python3 (required for all scripts)
+# - sntp (required for NTP time sync)
+# - netcat/nc (required for network checks)
+# - bc (required for calculations)
+# - coreutils (macOS only - for gtimeout)
+
+# macOS installation:
+#   brew install grpcurl coreutils
+
+# Linux installation (Debian/Ubuntu):
+#   sudo apt-get install grpcurl python3 sntp netcat bc gpsd gpsd-clients

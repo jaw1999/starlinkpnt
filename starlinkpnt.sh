@@ -14,6 +14,15 @@ readonly NTP_TIMEOUT="3"                        # NTP query timeout
 readonly NTP_UPDATE_INTERVAL="60"               # Seconds between NTP sync updates
 readonly USE_NTP_DISPLAY="true"                 # Display NTP timing information
 
+# Cross-platform timeout command
+if command -v gtimeout &> /dev/null; then
+    readonly TIMEOUT_CMD="gtimeout"
+elif command -v timeout &> /dev/null; then
+    readonly TIMEOUT_CMD="timeout"
+else
+    readonly TIMEOUT_CMD=""
+fi
+
 readonly COLOR_GREEN='\033[0;32m'
 readonly COLOR_CYAN='\033[0;36m'
 readonly COLOR_YELLOW='\033[1;33m'
@@ -42,15 +51,15 @@ readonly NTP_STATUS_ROW=22 NTP_STATUS_COL=15
 readonly NTP_OFFSET_ROW=23 NTP_OFFSET_COL=15
 readonly NTP_SYNC_ROW=24 NTP_SYNC_COL=15
 
-declare -g start_time=""
-declare -g initial_lat=""
-declare -g initial_lon=""
-declare -g total_readings=0
+start_time=""
+initial_lat=""
+initial_lon=""
+total_readings=0
 
 # NTP Global Variables
-declare -g NTP_OFFSET="0"                          # NTP time offset in seconds
-declare -g NTP_LAST_SYNC=""                       # Last NTP sync timestamp
-declare -g NTP_AVAILABLE="false"                  # NTP server availability status
+NTP_OFFSET="0"                          # NTP time offset in seconds
+NTP_LAST_SYNC=""                       # Last NTP sync timestamp
+NTP_AVAILABLE="false"                  # NTP server availability status
 
 error_exit() {
     local message="$1"
@@ -98,8 +107,8 @@ check_dependencies() {
     fi
     
     if [[ "$USE_NTP_DISPLAY" == "true" ]]; then
-        if ! command_exists ntpdate; then
-            missing_deps+=("ntpdate")
+        if ! command_exists sntp; then
+            missing_deps+=("sntp")
         fi
         
         if ! command_exists nc; then
@@ -145,7 +154,7 @@ check_ntp_server() {
         return 1
     fi
     
-    if timeout "$NTP_TIMEOUT" nc -u -z "$NTP_SERVER" 123 2>/dev/null; then
+    if ${TIMEOUT_CMD} "$NTP_TIMEOUT" nc -u -z "$NTP_SERVER" 123 2>/dev/null; then
         return 0
     else
         return 1
@@ -167,22 +176,17 @@ sync_ntp_time() {
     fi
     
     # Query NTP server
-    if ntp_result=$(timeout "$NTP_TIMEOUT" ntpdate -q "$NTP_SERVER" 2>/dev/null); then
-        # Parse ntpdate output: "server 192.168.100.1, stratum 1, offset +0.004257, delay 0.02939"
-        local offset_line
-        if offset_line=$(echo "$ntp_result" | grep "offset"); then
-            local offset
-            # Try different parsing patterns for offset
-            offset=$(echo "$offset_line" | grep -oP 'offset\s+[+-]?\K[0-9.-]+' 2>/dev/null | tr -d '\n' || \
-                     echo "$offset_line" | awk '{for(i=1;i<=NF;i++) if($i=="offset") print $(i+1)}' 2>/dev/null | tr -d '\n' || \
-                     echo "0")
-            
-            if [[ -n "$offset" && "$offset" != "0" ]]; then
-                NTP_OFFSET="$offset"
-                NTP_LAST_SYNC="$current_time"
-                NTP_AVAILABLE="true"
-                return 0
-            fi
+    if ntp_result=$(${TIMEOUT_CMD} "$NTP_TIMEOUT" sntp -t "$NTP_TIMEOUT" "$NTP_SERVER" 2>&1); then
+        # Parse sntp output: "+0.042734 +/- 0.003079 192.168.100.1 192.168.100.1"
+        # The first field is the offset in seconds
+        local offset
+        offset=$(echo "$ntp_result" | awk '{print $1}' | tr -d '+' 2>/dev/null || echo "0")
+
+        if [[ -n "$offset" && "$offset" != "0" ]]; then
+            NTP_OFFSET="$offset"
+            NTP_LAST_SYNC="$current_time"
+            NTP_AVAILABLE="true"
+            return 0
         fi
     fi
     
@@ -233,22 +237,34 @@ get_ntp_timestamp() {
 
 get_location_data() {
     local location_json
-    location_json=$(timeout 3 grpcurl -plaintext -d '{"get_location":{}}' \
+    location_json=$(${TIMEOUT_CMD} 3 grpcurl -plaintext -d '{"get_location":{}}' \
         "${STARLINK_IP}:${STARLINK_PORT}" \
         SpaceX.API.Device.Device/Handle 2>/dev/null)
-    
+
     if [[ -n "$location_json" ]]; then
-        LAT=$(echo "$location_json" | grep -oP '"lat":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-        LON=$(echo "$location_json" | grep -oP '"lon":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-        ALT=$(echo "$location_json" | grep -oP '"alt":\s*\K[-0-9.]+' 2>/dev/null || echo "")
-        
-        # Try multiple possible accuracy field names
-        ACCURACY=$(echo "$location_json" | grep -oP '"sigmaM":\s*\K[0-9.]+' 2>/dev/null || \
-                   echo "$location_json" | grep -oP '"sigma":\s*\K[0-9.]+' 2>/dev/null || \
-                   echo "$location_json" | grep -oP '"accuracy":\s*\K[0-9.]+' 2>/dev/null || \
-                   echo "$location_json" | grep -oP '"precision":\s*\K[0-9.]+' 2>/dev/null || \
-                   echo "")
-        
+        # Use Python for cross-platform JSON parsing
+        local parsed
+        parsed=$(echo "$location_json" | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    lla = data.get("getLocation", {}).get("lla", {})
+    print(lla.get("lat", ""))
+    print(lla.get("lon", ""))
+    print(lla.get("alt", ""))
+except:
+    print("")
+    print("")
+    print("")
+' 2>/dev/null)
+
+        LAT=$(echo "$parsed" | sed -n '1p')
+        LON=$(echo "$parsed" | sed -n '2p')
+        ALT=$(echo "$parsed" | sed -n '3p')
+
+        # Accuracy field not available in location response
+        ACCURACY=""
+
         if [[ -z "$initial_lat" && -n "$LAT" ]]; then
             initial_lat="$LAT"
             initial_lon="$LON"
@@ -261,14 +277,28 @@ get_location_data() {
 
 get_gps_status() {
     local status_json
-    status_json=$(timeout 3 grpcurl -plaintext -d '{"get_status":{}}' \
+    status_json=$(${TIMEOUT_CMD} 3 grpcurl -plaintext -d '{"get_status":{}}' \
         "${STARLINK_IP}:${STARLINK_PORT}" \
         SpaceX.API.Device.Device/Handle 2>/dev/null)
-    
+
     if [[ -n "$status_json" ]]; then
-        GPS_SATS=$(echo "$status_json" | grep -oP '"gpsSats":\s*\K[0-9]+' 2>/dev/null || echo "0")
-        GPS_VALID=$(echo "$status_json" | grep -oP '"gpsValid":\s*\K(true|false)' 2>/dev/null || echo "false")
-        
+        # Use Python for cross-platform JSON parsing
+        local parsed
+        parsed=$(echo "$status_json" | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    gps_stats = data.get("dishGetStatus", {}).get("gpsStats", {})
+    print(gps_stats.get("gpsSats", "0"))
+    print(str(gps_stats.get("gpsValid", False)).lower())
+except:
+    print("0")
+    print("false")
+' 2>/dev/null)
+
+        GPS_SATS=$(echo "$parsed" | sed -n '1p')
+        GPS_VALID=$(echo "$parsed" | sed -n '2p')
+
         ((total_readings++))
         return 0
     else
@@ -296,7 +326,7 @@ initialize_screen() {
     goto_xy 3 7
     echo -e "Altitude:"
     goto_xy 3 8
-    echo -e "Accuracy:"
+    echo -e "GPS Status:"
     
     goto_xy 1 10
     echo -e "${COLOR_BOLD}NAVIGATION${COLOR_NC}"
@@ -337,15 +367,17 @@ update_position_data() {
     update_field "$LAT_ROW" "$LAT_COL" "${COLOR_GREEN}${LAT:-N/A}°${COLOR_NC}"
     update_field "$LON_ROW" "$LON_COL" "${COLOR_GREEN}${LON:-N/A}°${COLOR_NC}"
     update_field "$ALT_ROW" "$ALT_COL" "${COLOR_GREEN}${ALT:-N/A} m${COLOR_NC}"
-    
-    # Format accuracy with proper units and color
-    if [[ -n "$ACCURACY" && "$ACCURACY" != "0" ]]; then
-        local acc_formatted
-        acc_formatted=$(echo "$ACCURACY" | awk '{printf "%.1f", $1}' 2>/dev/null || echo "$ACCURACY")
-        update_field "$ACC_ROW" "$ACC_COL" "${COLOR_GREEN}±${acc_formatted} m${COLOR_NC}"
+
+    # Show GPS validity status
+    local gps_status_text
+    if [[ "$GPS_VALID" == "true" ]]; then
+        gps_status_text="${COLOR_GREEN}Valid${COLOR_NC}"
+    elif [[ "$GPS_VALID" == "false" ]]; then
+        gps_status_text="${COLOR_RED}Invalid${COLOR_NC}"
     else
-        update_field "$ACC_ROW" "$ACC_COL" "${COLOR_YELLOW}±Unknown${COLOR_NC}"
+        gps_status_text="${COLOR_YELLOW}Unknown${COLOR_NC}"
     fi
+    update_field "$ACC_ROW" "$ACC_COL" "$gps_status_text"
 }
 
 update_navigation_data() {
@@ -423,7 +455,12 @@ update_ntp_data() {
     # Last Sync
     if [[ "$NTP_AVAILABLE" == "true" && -n "$NTP_LAST_SYNC" ]]; then
         local last_sync_time
-        last_sync_time=$(date -d "@$NTP_LAST_SYNC" '+%H:%M:%S' 2>/dev/null || echo "N/A")
+        # Cross-platform date formatting (macOS uses -r, Linux uses -d)
+        if date -r "$NTP_LAST_SYNC" '+%H:%M:%S' &>/dev/null; then
+            last_sync_time=$(date -r "$NTP_LAST_SYNC" '+%H:%M:%S')
+        else
+            last_sync_time=$(date -d "@$NTP_LAST_SYNC" '+%H:%M:%S' 2>/dev/null || echo "N/A")
+        fi
         local sync_age=$(($(date +%s) - NTP_LAST_SYNC))
         update_field "$NTP_SYNC_ROW" "$NTP_SYNC_COL" "${COLOR_GREEN}${last_sync_time} (${sync_age}s ago)${COLOR_NC}"
     else
@@ -459,8 +496,8 @@ monitor_pnt() {
             fi
         fi
         
-        get_location_data || warn "Failed to get location data"
-        get_gps_status || warn "Failed to get GPS status"
+        get_location_data 2>/dev/null || true
+        get_gps_status 2>/dev/null || true
         
         update_position_data
         update_navigation_data

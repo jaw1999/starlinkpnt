@@ -9,6 +9,7 @@ This repository contains multiple scripts for different use cases:
 1. **`starlink_nmea_fallback.py`** - Advanced GPS/Starlink fallback system (main script)
 2. **`starlinkpnt.sh`** - Real-time Starlink PNT monitoring with NTP sync
 3. **`starlink_to_gpsd.sh`** - Convert Starlink PNT to NMEA for GPSD
+4. **`starlink_to_udp.py`** - Stream NMEA data via UDP to autopilot systems
 
 ## Scripts Overview
 
@@ -40,6 +41,16 @@ Features:
 - NMEA Generation: Creates GGA, RMC, GSA sentences
 - Named Pipe: Creates pipe for GPSD consumption
 - High-Speed Updates: Configurable update rate (default 5Hz)
+
+### starlink_to_udp.py
+Streams NMEA sentences from Starlink to a UDP destination, ideal for autopilot systems like Cube Orange.
+
+Features:
+- UDP Streaming: Sends NMEA data to configurable IP and port
+- Complete NMEA Set: GGA, RMC, VTG, GLL, GSA sentences
+- NTP Time Sync: Accurate timestamps from Starlink's NTP server
+- Autopilot Ready: Perfect for MAVLink-based flight controllers
+- High-Speed Updates: 5 Hz default update rate
 
 ## Features
 
@@ -75,23 +86,51 @@ Features:
 
 - GPS Receiver: USB u-blox GPS (tested with u-blox 7 series) - for fallback system
 - Starlink: Active Starlink internet service
-- System: Linux with Python 3.6+ and gpsd
+- System: macOS or Linux with Python 3.6+ and gpsd
 - Network: Access to Starlink terminal at 192.168.100.1
 
 ## Software Dependencies
 
+### macOS
+```bash
+# Install Homebrew if not already installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install required dependencies
+brew install grpcurl coreutils
+
+# Python packages (for fallback system)
+pip3 install pyserial
+```
+
+### Linux (Debian/Ubuntu)
 ```bash
 # Core dependencies
-sudo apt-get install python3 python3-pip gpsd gpsd-clients
+sudo apt-get install grpcurl python3 python3-pip gpsd gpsd-clients sntp netcat bc
 
-# Python packages
+# Python packages (for fallback system)
 pip3 install pyserial
+```
 
-# Optional: NTP tools for enhanced timing
-sudo apt-get install ntpdate netcat
+### Linux (RHEL/CentOS)
+```bash
+# Core dependencies
+sudo yum install grpcurl python3 python3-pip gpsd sntp nmap-ncat bc
 
-# For MAVLink script
-sudo apt-get install python3 nc
+# Python packages (for fallback system)
+pip3 install pyserial
+```
+
+## Cross-Platform Compatibility
+
+All scripts are compatible with both macOS and Linux:
+- macOS (tested on Sequoia 24.5.0 with bash 3.2)
+- Linux (tested on Ubuntu 20.04+ and Debian 11+)
+- Uses portable commands and cross-platform JSON parsing
+- Auto-detects platform-specific tools (gtimeout/timeout)
+- NTP sync using `sntp` (replaces deprecated `ntpdate`)
+
+See [CROSS_PLATFORM_COMPATIBILITY.md](CROSS_PLATFORM_COMPATIBILITY.md) for detailed compatibility information
 
 ## Installation
 
@@ -184,7 +223,7 @@ Starting the System:
    python3 starlink_nmea_fallback.py
    ```
 
-2. Start gpsd (in another terminal):
+2. Start gpsd in another terminal:
    ```bash
    sudo gpsd -N -n /tmp/starlink_nmea_fallback
    ```
@@ -252,6 +291,50 @@ Features:
 - Generates NMEA sentences (GGA, RMC, GSA)
 - Creates a named pipe for GPSD consumption
 - High-speed updates (configurable, default 5Hz)
+
+### 4. UDP NMEA Streamer (`starlink_to_udp.py`)
+
+Usage:
+```bash
+# Edit configuration at top of script:
+# UDP_DEST_IP = "192.168.1.100"  # Your Cube Orange or autopilot IP
+# UDP_DEST_PORT = 14550          # GPS input port
+
+# Start streaming
+python3 starlink_to_udp.py
+```
+
+Example Output:
+```
+Starlink to UDP NMEA Bridge
+Starlink API: 192.168.100.1:9200
+UDP Destination: 192.168.1.100:14550
+Update Rate: 5.0 Hz
+
+UDP socket created
+NTP sync successful, offset: 0.040s
+Ready to stream NMEA data
+
+$GPGGA,201404.79,5004.2498,N,00815.8860,E,1,14,1.0,226.4,M,0.0,M,,*5B
+$GPRMC,201404.79,A,5004.2498,N,00815.8860,E,0.0,0.0,061125,,*33
+$GPVTG,0.0,T,,M,0.0,N,0.0,K,*4C
+$GPGLL,5004.2498,N,00815.8860,E,201404.79,A,*29
+$GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,1.0,1.0,1.0*30
+```
+
+Configuration Options:
+```python
+UDP_DEST_IP = "192.168.1.100"  # Destination IP (Cube Orange, etc.)
+UDP_DEST_PORT = 14550          # Destination port (14550 for MAVLink GPS)
+UPDATE_INTERVAL = 0.2          # Update interval (5 Hz)
+USE_NTP = True                 # Enable NTP time sync
+```
+
+Common UDP Ports for Autopilots:
+- **14550**: MAVLink GPS input (ArduPilot default)
+- **14551**: Alternative GPS port
+- **5760**: Serial bridge port
+- Custom: Configure in your autopilot's GPS settings
 
 ### Systemd Service (Optional)
 
@@ -497,26 +580,6 @@ $GPRMC,060143.50,A,4700.0000,N,12200.0000,W,0.0,0.0,110725,,*6A
 $GPVTG,0.0,T,,M,0.0,N,0.0,K,*66
 $GPGLL,4700.0000,N,12200.0000,W,060143.50,A,*6A
 $GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,1.0,1.0,1.0*30
-```
-
-## Development
-
-### Adding New Features
-- Protocol Support: Add new GPS protocols in the serial reading section
-- Fallback Sources: Extend fallback data sources beyond Starlink
-- Monitoring: Add health checks and metrics collection
-- New Output Formats: Add support for additional navigation protocols
-
-### Testing
-```bash
-# Test GPS only (Fallback System)
-python3 -c "import serial; s=serial.Serial('/dev/ttyACM0', 4800); print(s.readline())"
-
-# Test NTP sync
-ntpdate -q 192.168.100.1
-
-# Test pipe communication
-echo "$GPGGA,000000.00,,,,,0,0,,0.0,M,0.0,M,,*66" > /tmp/starlink_nmea_fallback
 ```
 
 ## Important Notes
