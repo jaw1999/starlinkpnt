@@ -130,8 +130,6 @@ All scripts are compatible with both macOS and Linux:
 - Auto-detects platform-specific tools (gtimeout/timeout)
 - NTP sync using `sntp` (replaces deprecated `ntpdate`)
 
-See [CROSS_PLATFORM_COMPATIBILITY.md](CROSS_PLATFORM_COMPATIBILITY.md) for detailed compatibility information
-
 ## Installation
 
 1. Clone or download the script to your system
