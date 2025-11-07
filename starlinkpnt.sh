@@ -9,7 +9,7 @@ readonly PING_TIMEOUT=2
 readonly PING_COUNT=1
 
 # NTP Configuration
-readonly NTP_SERVER="192.168.100.1"             # Starlink NTP server
+readonly NTP_SERVER="192.168.100.1"         # Starlink NTP server
 readonly NTP_TIMEOUT="3"                        # NTP query timeout
 readonly NTP_UPDATE_INTERVAL="60"               # Seconds between NTP sync updates
 readonly USE_NTP_DISPLAY="true"                 # Display NTP timing information
@@ -17,10 +17,14 @@ readonly USE_NTP_DISPLAY="true"                 # Display NTP timing information
 # Cross-platform timeout command
 if command -v gtimeout &> /dev/null; then
     readonly TIMEOUT_CMD="gtimeout"
+    readonly USE_TIMEOUT_FOR_GRPC="true"
 elif command -v timeout &> /dev/null; then
     readonly TIMEOUT_CMD="timeout"
+    # Linux timeout command interferes with grpcurl output buffering
+    readonly USE_TIMEOUT_FOR_GRPC="false"
 else
     readonly TIMEOUT_CMD=""
+    readonly USE_TIMEOUT_FOR_GRPC="false"
 fi
 
 readonly COLOR_GREEN='\033[0;32m'
@@ -36,20 +40,20 @@ readonly CLEAR_TO_EOL="${ESC}[K"
 readonly HIDE_CURSOR="${ESC}[?25l"
 readonly SHOW_CURSOR="${ESC}[?25h"
 
-readonly LAT_ROW=5 LAT_COL=15
-readonly LON_ROW=6 LON_COL=15
-readonly ALT_ROW=7 ALT_COL=15
-readonly ACC_ROW=8 ACC_COL=15
-readonly SAT_ROW=11 SAT_COL=15
-readonly VALID_ROW=12 VALID_COL=15
-readonly DIST_ROW=13 DIST_COL=18
-readonly TIME_ROW=16 TIME_COL=15
-readonly RUNTIME_ROW=17 RUNTIME_COL=15
-readonly RATE_ROW=18 RATE_COL=15
-readonly READINGS_ROW=19 READINGS_COL=15
-readonly NTP_STATUS_ROW=22 NTP_STATUS_COL=15
-readonly NTP_OFFSET_ROW=23 NTP_OFFSET_COL=15
-readonly NTP_SYNC_ROW=24 NTP_SYNC_COL=15
+readonly LAT_ROW=5 LAT_COL=20
+readonly LON_ROW=6 LON_COL=20
+readonly ALT_ROW=7 ALT_COL=20
+readonly ACC_ROW=8 ACC_COL=20
+readonly SAT_ROW=11 SAT_COL=20
+readonly VALID_ROW=12 VALID_COL=20
+readonly DIST_ROW=13 DIST_COL=20
+readonly TIME_ROW=16 TIME_COL=20
+readonly RUNTIME_ROW=17 RUNTIME_COL=20
+readonly RATE_ROW=18 RATE_COL=20
+readonly READINGS_ROW=19 READINGS_COL=20
+readonly NTP_STATUS_ROW=22 NTP_STATUS_COL=20
+readonly NTP_OFFSET_ROW=23 NTP_OFFSET_COL=20
+readonly NTP_SYNC_ROW=24 NTP_SYNC_COL=20
 
 start_time=""
 initial_lat=""
@@ -178,11 +182,12 @@ sync_ntp_time() {
     # Query NTP server
     if ntp_result=$(${TIMEOUT_CMD} "$NTP_TIMEOUT" sntp -t "$NTP_TIMEOUT" "$NTP_SERVER" 2>&1); then
         # Parse sntp output: "+0.042734 +/- 0.003079 192.168.100.1 192.168.100.1"
-        # The first field is the offset in seconds
+        # or "2025-11-07 12:34:56.123456 (+0.042734) +/- 0.003079 192.168.100.1"
+        # The first numeric field starting with +/- is the offset in seconds
         local offset
-        offset=$(echo "$ntp_result" | awk '{print $1}' | tr -d '+' 2>/dev/null || echo "0")
+        offset=$(echo "$ntp_result" | grep -oE '[-+][0-9]+\.[0-9]+' | head -1 | tr -d '+' 2>/dev/null)
 
-        if [[ -n "$offset" && "$offset" != "0" ]]; then
+        if [[ -n "$offset" && "$offset" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
             NTP_OFFSET="$offset"
             NTP_LAST_SYNC="$current_time"
             NTP_AVAILABLE="true"
@@ -237,7 +242,7 @@ get_ntp_timestamp() {
 
 get_location_data() {
     local location_json
-    location_json=$(${TIMEOUT_CMD} 3 grpcurl -plaintext -d '{"get_location":{}}' \
+    location_json=$(grpcurl -plaintext -d '{"get_location":{}}' \
         "${STARLINK_IP}:${STARLINK_PORT}" \
         SpaceX.API.Device.Device/Handle 2>/dev/null)
 
@@ -277,7 +282,7 @@ except:
 
 get_gps_status() {
     local status_json
-    status_json=$(${TIMEOUT_CMD} 3 grpcurl -plaintext -d '{"get_status":{}}' \
+    status_json=$(grpcurl -plaintext -d '{"get_status":{}}' \
         "${STARLINK_IP}:${STARLINK_PORT}" \
         SpaceX.API.Device.Device/Handle 2>/dev/null)
 
@@ -484,8 +489,8 @@ monitor_pnt() {
     while true; do
         local loop_start_time
         loop_start_time=$(date +%s.%N)
-        
-        local LAT LON ALT ACCURACY GPS_SATS GPS_VALID
+
+        LAT="" LON="" ALT="" ACCURACY="" GPS_SATS="" GPS_VALID=""
         
         # Periodic NTP synchronization
         if [[ "$USE_NTP_DISPLAY" == "true" ]]; then
