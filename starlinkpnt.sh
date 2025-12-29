@@ -181,11 +181,11 @@ sync_ntp_time() {
     
     # Query NTP server
     if ntp_result=$(${TIMEOUT_CMD} "$NTP_TIMEOUT" sntp -t "$NTP_TIMEOUT" "$NTP_SERVER" 2>&1); then
-        # Parse sntp output: "+0.042734 +/- 0.003079 192.168.100.1 192.168.100.1"
-        # or "2025-11-07 12:34:56.123456 (+0.042734) +/- 0.003079 192.168.100.1"
-        # The first numeric field starting with +/- is the offset in seconds
+        # Parse sntp output format:
+        # "2025-12-29 09:20:42.513019 (-0500) -0.000077 +/- 0.002686 192.168.100.1 s1 no-leap"
+        # The offset is the number before "+/-"
         local offset
-        offset=$(echo "$ntp_result" | grep -oE '[-+][0-9]+\.[0-9]+' | head -1 | tr -d '+' 2>/dev/null)
+        offset=$(echo "$ntp_result" | grep -oE '[-+]?[0-9]+\.[0-9]+ \+/-' | head -1 | awk '{print $1}' 2>/dev/null)
 
         if [[ -n "$offset" && "$offset" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
             NTP_OFFSET="$offset"

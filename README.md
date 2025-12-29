@@ -1,595 +1,155 @@
-# Starlink PNT (Position, Navigation, Timing) System
+# Starlink PNT (Position, Navigation, Timing)
 
-A comprehensive collection of scripts for interfacing with Starlink terminals to extract GPS/PNT data and convert it to various formats for use with navigation systems, including a robust GPS/Starlink fallback system.
+Scripts for extracting GPS/PNT data from Starlink terminals and converting it to NMEA/MAVLink formats for navigation systems and autopilots.
 
-## Overview
+## Scripts
 
-This repository contains multiple scripts for different use cases:
+| Script | Purpose |
+|--------|---------|
+| `starlink_to_udp.py` | Stream NMEA via UDP to autopilots |
+| `starlink_mavlink_gps.py` | MAVLink GPS injection to Cube Orange/Pixhawk |
+| `starlink_nmea_fallback.py` | GPS primary with Starlink fallback |
+| `starlinkpnt.sh` | Terminal monitoring dashboard |
+| `starlink_to_gpsd.sh` | NMEA bridge for gpsd |
+| `deploy_to_pi.sh` | Deploy to Raspberry Pi |
 
-1. **`starlink_nmea_fallback.py`** - Advanced GPS/Starlink fallback system (main script)
-2. **`starlinkpnt.sh`** - Real-time Starlink PNT monitoring with NTP sync
-3. **`starlink_to_gpsd.sh`** - Convert Starlink PNT to NMEA for GPSD
-4. **`starlink_to_udp.py`** - Stream NMEA data via UDP to autopilot systems
+## Raspberry Pi Deployment
 
-## Scripts Overview
-
-### starlink_nmea_fallback.py
-A robust GPS/Starlink positioning system that provides continuous NMEA data to gpsd with automatic fallback to Starlink when GPS signal is lost.
-
-Key Features:
-- Dual Positioning Sources: USB u-blox GPS + Starlink fallback
-- Automatic Failover: Seamless switching between GPS and Starlink
-- Precise Timing: NTP synchronization with Starlink's time server
-- Comprehensive NMEA Output: Complete sentence set in fallback mode
-- High-Performance: Fast updates and quick recovery
-
-### starlinkpnt.sh
-Real-time monitoring script that displays Starlink PNT data in a formatted terminal interface with NTP synchronization.
-
-Features:
-- Live Position Display: Real-time GPS coordinates with precision
-- NTP Time Synchronization: Integrates with Starlink's NTP server
-- Navigation Status: Satellite count, GPS validity, distance tracking
-- Performance Monitoring: Update rates, runtime, and reading counts
-- Enhanced Display: Stable terminal interface with status indicators
-
-### starlink_to_gpsd.sh
-Converts Starlink PNT data to NMEA format for use with GPSD.
-
-Features:
-- gRPC Connection: Connects to Starlink terminal via gRPC
-- NMEA Generation: Creates GGA, RMC, GSA sentences
-- Named Pipe: Creates pipe for GPSD consumption
-- High-Speed Updates: Configurable update rate (default 5Hz)
-
-### starlink_to_udp.py
-Streams NMEA sentences from Starlink to a UDP destination, ideal for autopilot systems like Cube Orange.
-
-Features:
-- UDP Streaming: Sends NMEA data to configurable IP and port
-- Complete NMEA Set: GGA, RMC, VTG, GLL, GSA sentences
-- NTP Time Sync: Accurate timestamps from Starlink's NTP server
-- Autopilot Ready: Perfect for MAVLink-based flight controllers
-- High-Speed Updates: 5 Hz default update rate
-
-## Features
-
-### Dual Positioning Sources
-- Primary: USB u-blox GPS receiver (NMEA + UBX protocols)
-- Fallback: Starlink positioning and timing services
-
-### Automatic Failover
-- Seamless switching between GPS and Starlink
-- Configurable lock loss threshold (default: 120 seconds)
-- Automatic recovery when GPS signal returns
-
-### Precise Timing
-- NTP synchronization with Starlink's time server (192.168.100.1)
-- NTP-corrected timestamps in fallback NMEA sentences
-- Automatic time offset calculation and application
-
-### Comprehensive NMEA Output
-- GPS Mode: Pass-through of all NMEA sentences from u-blox GPS
-- Fallback Mode: Complete NMEA sentence set including:
-  - `$GPGGA` - Global Positioning System Fix Data
-  - `$GPRMC` - Recommended Minimum Navigation Information
-  - `$GPVTG` - Track Made Good and Ground Speed
-  - `$GPGLL` - Geographic Position - Latitude/Longitude
-  - `$GPGSA` - GNSS DOP and Active Satellites
-
-### High-Performance Operation
-- Fast fallback updates (0.5-second intervals)
-- Quick GPS reconnection attempts (1-second intervals)
-- Efficient pipe-based communication with gpsd
-
-## Hardware Requirements
-
-- GPS Receiver: USB u-blox GPS (tested with u-blox 7 series) - for fallback system
-- Starlink: Active Starlink internet service
-- System: macOS or Linux with Python 3.6+ and gpsd
-- Network: Access to Starlink terminal at 192.168.100.1
-
-## Software Dependencies
-
-### macOS
 ```bash
-# Install Homebrew if not already installed
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install required dependencies
-brew install grpcurl coreutils
-
-# Python packages (for fallback system)
-pip3 install pyserial
+./deploy_to_pi.sh
 ```
 
-### Linux (Debian/Ubuntu)
+Prompts for Pi IP and username, then installs everything. After deployment:
+
 ```bash
-# Core dependencies
-sudo apt-get install grpcurl python3 python3-pip gpsd gpsd-clients sntp netcat bc
+starlink-pnt test      # Test connectivity
+starlink-pnt status    # Service status
+starlink-pnt udp       # Run UDP streamer
+starlink-pnt mavlink   # Run MAVLink GPS
+starlink-pnt monitor   # Run dashboard
 
-# Python packages (for fallback system)
-pip3 install pyserial
+# Auto-start on boot
+sudo systemctl enable starlink-udp
+sudo systemctl start starlink-udp
 ```
-
-### Linux (RHEL/CentOS)
-```bash
-# Core dependencies
-sudo yum install grpcurl python3 python3-pip gpsd sntp nmap-ncat bc
-
-# Python packages (for fallback system)
-pip3 install pyserial
-```
-
-## Cross-Platform Compatibility
-
-All scripts are compatible with both macOS and Linux:
-- macOS (tested on Sequoia 24.5.0 with bash 3.2)
-- Linux (tested on Ubuntu 20.04+ and Debian 11+)
-- Uses portable commands and cross-platform JSON parsing
-- Auto-detects platform-specific tools (gtimeout/timeout)
-- NTP sync using `sntp` (replaces deprecated `ntpdate`)
-
-## Installation
-
-1. Clone or download the script to your system
-2. Install dependencies (see above)
-3. Configure the script for your setup (see Configuration section)
-4. Test the system (see Testing section)
-
-## Starlink Terminal Setup
-
-### Network Configuration
-
-The scripts assume the standard Starlink network configuration:
-- Starlink terminal IP: 192.168.100.1
-- gRPC port: 9200
-- NTP server: 192.168.100.1:123
-
-If your setup is different, edit the `STARLINK_IP` and `STARLINK_PORT` variables in the scripts.
-
-### Terminal Setup
-
-1. Ensure your Starlink terminal is connected and operational
-2. Make sure you can reach the terminal at `192.168.100.1`
-3. The gRPC interface should be available on port `9200`
-
-Test connectivity:
-```bash
-# Test basic connectivity
-ping 192.168.100.1
-
-# Test gRPC port
-nc -zv 192.168.100.1 9200
-
-# Test NTP port
-nc -u -z -w 3 192.168.100.1 123
-```
-
-## Configuration
-
-### Device Configuration (Fallback System)
-
-Edit the configuration section in `starlink_nmea_fallback.py`:
-
-```python
-# Configuration
-STARLINK_IP = "192.168.100.1"        # Starlink router IP
-STARLINK_PORT = "9200"               # Starlink API port
-PRIMARY_GPS_DEVICE = "/dev/ttyACM0"  # GPS device path
-PRIMARY_GPS_BAUD = 4800              # GPS baud rate
-LOCK_LOSS_THRESHOLD = 120            # Seconds before fallback
-UPDATE_INTERVAL = 0.2                # GPS update interval
-GPS_PIPE = "/tmp/starlink_nmea_fallback"  # Named pipe for gpsd
-
-# NTP Configuration
-NTP_SERVER = "192.168.100.1"         # Starlink NTP server
-NTP_TIMEOUT = 3                      # NTP query timeout
-NTP_UPDATE_INTERVAL = 60             # NTP sync interval
-USE_NTP = True                       # Enable NTP sync
-```
-
-### GPS Device Setup
-
-1. Check device path:
-   ```bash
-   ls -la /dev/ttyACM*
-   ```
-
-2. Set permissions (if needed):
-   ```bash
-   sudo usermod -a -G dialout $USER
-   # Log out and back in, or run:
-   newgrp dialout
-   ```
-
-3. Test GPS connection:
-   ```bash
-   # Test with gpsmon
-   sudo gpsd -N -n /dev/ttyACM0
-   gpsmon
-   ```
 
 ## Usage
 
-### 1. Primary System: GPS/Starlink Fallback (`starlink_nmea_fallback.py`)
+### UDP NMEA Streaming
 
-Starting the System:
+Streams NMEA to a UDP destination at 5 Hz.
 
-1. Start the fallback script:
-   ```bash
-   python3 starlink_nmea_fallback.py
-   ```
+```bash
+python3 starlink_to_udp.py
+```
 
-2. Start gpsd in another terminal:
-   ```bash
-   sudo gpsd -N -n /tmp/starlink_nmea_fallback
-   ```
+Configuration (edit at top of script):
+```python
+UDP_DEST_IP = "192.168.1.100"
+UDP_DEST_PORT = 14550
+```
 
-3. Test with a gpsd client:
-   ```bash
-   # Raw NMEA output
-   gpspipe -r
-   
-   # Real-time monitor
-   gpsmon
-   
-   # JSON output
-   gpspipe -w
-   ```
+### MAVLink GPS Injection
 
-### 2. Real-time Monitor (`starlinkpnt.sh`)
+Sends GPS_INPUT messages to Cube Orange/Pixhawk over USB.
 
-Usage:
+```bash
+python3 starlink_mavlink_gps.py
+```
+
+Requires ArduPilot `GPS_TYPE = 14` (MAVLink).
+
+### GPS/Starlink Fallback
+
+Uses USB GPS as primary, falls back to Starlink when GPS signal is lost.
+
+```bash
+python3 starlink_nmea_fallback.py
+sudo gpsd -N -n /tmp/starlink_nmea_fallback
+```
+
+### Monitor Dashboard
+
 ```bash
 ./starlinkpnt.sh
 ```
 
-Example Output:
-```
-STARLINK PNT MONITOR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## Requirements
 
-POSITION
-  Latitude:      47.109743°
-  Longitude:     -122.569048°
-  Altitude:      60.52 m
-  Accuracy:      ±25.0 m
+### Network
 
-NAVIGATION
-  Satellites:    12
-  GPS Valid:     Yes
-  Distance Moved: 0.00 m
+- Starlink terminal at 192.168.100.1
+- gRPC port 9200 accessible
+- NTP port 123 accessible
 
-TIMING
-  Time:          20:28:49 UTC (NTP)
-  Runtime:       00:00:05
-  Update Rate:   10.0 Hz
-  Readings:      14
-
-NTP SYNCHRONIZATION
-  NTP Status:    SYNCHRONIZED
-  Time Offset:   2 ms
-  Last Sync:     13:28:44 (5s ago)
-```
-
-### 3. GPSD Bridge (`starlink_to_gpsd.sh`)
-
-Usage:
+Test:
 ```bash
-# Terminal 1: Start the bridge
-./starlink_to_gpsd.sh
-
-# Terminal 2: Start GPSD
-sudo gpsd -N -D 2 /tmp/starlink_nmea
+ping 192.168.100.1
+nc -zv 192.168.100.1 9200
+sntp 192.168.100.1
 ```
 
-Features:
-- Connects to Starlink terminal via gRPC
-- Generates NMEA sentences (GGA, RMC, GSA)
-- Creates a named pipe for GPSD consumption
-- High-speed updates (configurable, default 5Hz)
+### Dependencies
 
-### 4. UDP NMEA Streamer (`starlink_to_udp.py`)
+Installed automatically by `deploy_to_pi.sh`, or manually:
 
-Usage:
 ```bash
-# Edit configuration at top of script:
-# UDP_DEST_IP = "192.168.1.100"  # Your Cube Orange or autopilot IP
-# UDP_DEST_PORT = 14550          # GPS input port
+# Debian/Ubuntu/Raspberry Pi
+sudo apt-get install python3 python3-pip python3-venv gpsd gpsd-clients sntp netcat-openbsd bc jq curl
 
-# Start streaming
-python3 starlink_to_udp.py
+# grpcurl
+curl -sL "https://github.com/fullstorydev/grpcurl/releases/download/v1.8.9/grpcurl_1.8.9_linux_$(dpkg --print-architecture).tar.gz" | tar -xz
+sudo mv grpcurl /usr/local/bin/
+
+# Python
+pip3 install pyserial pymavlink
 ```
 
-Example Output:
+## Systemd Services
+
+Created by deployment script:
+
+| Service | Script |
+|---------|--------|
+| `starlink-udp` | starlink_to_udp.py |
+| `starlink-mavlink` | starlink_mavlink_gps.py |
+| `starlink-fallback` | starlink_nmea_fallback.py |
+
+```bash
+sudo systemctl enable starlink-udp
+sudo systemctl start starlink-udp
+journalctl -u starlink-udp -f
 ```
-Starlink to UDP NMEA Bridge
-Starlink API: 192.168.100.1:9200
-UDP Destination: 192.168.1.100:14550
-Update Rate: 5.0 Hz
 
-UDP socket created
-NTP sync successful, offset: 0.040s
-Ready to stream NMEA data
+## NMEA Output
 
-$GPGGA,201404.79,5004.2498,N,00815.8860,E,1,14,1.0,226.4,M,0.0,M,,*5B
-$GPRMC,201404.79,A,5004.2498,N,00815.8860,E,0.0,0.0,061125,,*33
+```
+$GPGGA,141748.73,5004.2620,N,00815.8861,E,1,14,1.0,228.6,M,0.0,M,,*51
+$GPRMC,141748.73,A,5004.2620,N,00815.8861,E,0.0,0.0,291225,,*3B
 $GPVTG,0.0,T,,M,0.0,N,0.0,K,*4C
-$GPGLL,5004.2498,N,00815.8860,E,201404.79,A,*29
+$GPGLL,5004.2620,N,00815.8861,E,141748.73,A,*2F
 $GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,1.0,1.0,1.0*30
-```
-
-Configuration Options:
-```python
-UDP_DEST_IP = "192.168.1.100"  # Destination IP (Cube Orange, etc.)
-UDP_DEST_PORT = 14550          # Destination port (14550 for MAVLink GPS)
-UPDATE_INTERVAL = 0.2          # Update interval (5 Hz)
-USE_NTP = True                 # Enable NTP time sync
-```
-
-Common UDP Ports for Autopilots:
-- **14550**: MAVLink GPS input (ArduPilot default)
-- **14551**: Alternative GPS port
-- **5760**: Serial bridge port
-- Custom: Configure in your autopilot's GPS settings
-
-### Systemd Service (Optional)
-
-Create a systemd service for automatic startup:
-
-```bash
-sudo tee /etc/systemd/system/starlink-nmea-fallback.service << EOF
-[Unit]
-Description=Starlink NMEA Fallback System
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/path/to/script/directory
-ExecStart=/usr/bin/python3 /path/to/script/starlink_nmea_fallback.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start the service
-sudo systemctl daemon-reload
-sudo systemctl enable starlink-nmea-fallback
-sudo systemctl start starlink-nmea-fallback
-```
-
-## Operation Modes
-
-### GPS Mode (Normal Operation)
-- Reads NMEA sentences from u-blox GPS
-- Passes through all GPS data to gpsd
-- Monitors for GPS lock loss
-- Updates every 0.2 seconds
-
-### Fallback Mode (GPS Lost)
-- Generates comprehensive NMEA sentences
-- Uses Starlink positioning data
-- Includes NTP-corrected timestamps
-- Updates every 0.5 seconds
-- Attempts GPS reconnection every 1 second
-
-### Recovery Mode
-- Automatically detects GPS reconnection
-- Switches back to GPS mode
-- Resumes normal operation
-
-## Monitoring and Debugging
-
-### Status Indicators
-
-The script provides real-time status information:
-
-```
-[OK] GPS data streaming
-GPS: $GPRMC,060135.00,A,4706.59000,N,12234.13721,W,0.006,,110725,,,D*69
-
-[WARNING] Switching to Starlink fallback
-FALLBACK: $GPGGA,060143,4700.0000,N,12200.0000,W,1,8,1.0,10.0,M,0.0,M,,*6A
-
-[OK] GPS device reconnected, resuming normal operation
-```
-
-### Log Analysis
-
-Monitor the script output for:
-- GPS data flow: Continuous NMEA sentences
-- Fallback activation: "Switching to Starlink fallback"
-- Recovery events: "GPS device reconnected"
-- NTP sync status: "NTP synchronized, offset: X.XXXs"
-
-### Common Issues
-
-#### GPS Device Not Found
-```bash
-# Check device permissions
-ls -la /dev/ttyACM0
-
-# Add user to dialout group
-sudo usermod -a -G dialout $USER
-```
-
-#### gpsd Connection Issues
-```bash
-# Check if gpsd is running
-ps aux | grep gpsd
-
-# Restart gpsd
-sudo pkill gpsd
-sudo gpsd -N -n /tmp/starlink_nmea_fallback
-```
-
-#### NTP Sync Failures
-```bash
-# Test NTP server connectivity
-nc -u -z -w 3 192.168.100.1 123
-
-# Check ntpdate availability
-which ntpdate
-```
-
-## Performance Characteristics
-
-### Timing Accuracy
-- GPS Mode: Native GPS timing accuracy
-- Fallback Mode: NTP-corrected timing (±1-10ms typical)
-- Update Rate: 0.2s (GPS) / 0.5s (fallback)
-
-### Reliability
-- Automatic failover: <1 second detection
-- Recovery time: <2 seconds
-- Continuous operation: 24/7 capability
-
-### Resource Usage
-- CPU: <5% typical
-- Memory: <50MB
-- Network: Minimal (NTP queries only)
-
-## Integration Examples
-
-### With Navigation Software
-```bash
-# Start the system
-python3 starlink_nmea_fallback.py &
-sudo gpsd -N -n /tmp/starlink_nmea_fallback
-
-# Use with OpenCPN
-opencpn --gpsd
-
-# Use with Navit
-navit --gpsd
-```
-
-### With Custom Applications
-```python
-import gpsd
-
-# Connect to gpsd
-gpsd.connect()
-
-# Get current position
-packet = gpsd.get_current()
-print(f"Lat: {packet.lat}, Lon: {packet.lon}")
 ```
 
 ## Troubleshooting
 
-### Common Issues
-
-#### 1. Cannot connect to Starlink terminal
 ```bash
-# Check network connectivity
+# Can't reach Starlink
 ping 192.168.100.1
-
-# Verify gRPC port is accessible
 nc -zv 192.168.100.1 9200
 
-# Check if grpcurl is installed
-which grpcurl
-```
+# NTP not working
+sntp 192.168.100.1
 
-#### 2. GPS Not Detected (Fallback System)
-```bash
-# Check device path
+# Serial port access
+sudo usermod -a -G dialout $USER
+# Then log out and back in
+
+# MAVLink not connecting
 ls -la /dev/ttyACM*
-
-# Verify permissions
-groups $USER
-
-# Test with gpsmon directly
-sudo gpsd -N -n /dev/ttyACM0
-gpsmon
+# Check GPS_TYPE = 14 in ArduPilot
 ```
 
-#### 3. Fallback Not Working
-```bash
-# Verify Starlink connectivity
-ping 192.168.100.1
+## Compatibility
 
-# Check NTP server
-nc -u -z 192.168.100.1 123
-
-# Test ntpdate
-ntpdate -q 192.168.100.1
-```
-
-#### 4. gpsd Issues
-```bash
-# Check pipe exists
-ls -la /tmp/starlink_nmea*
-
-# Verify gpsd process
-ps aux | grep gpsd
-
-# Check gpsd logs
-journalctl -u gpsd
-```
-
-#### 5. Performance Issues
-```bash
-# Monitor CPU usage
-top
-
-# Check memory
-free -h
-
-# Verify disk space
-df -h
-```
-
-### Testing Individual Components
-
-#### Test GPS only (Fallback System)
-```bash
-python3 -c "import serial; s=serial.Serial('/dev/ttyACM0', 4800); print(s.readline())"
-```
-
-#### Test NTP sync
-```bash
-ntpdate -q 192.168.100.1
-```
-
-#### Test pipe communication
-```bash
-echo "$GPGGA,000000.00,,,,,0,0,,0.0,M,0.0,M,,*66" > /tmp/starlink_nmea_fallback
-```
-
-## Data Format Examples
-
-### NMEA Output (GPSD scripts)
-```
-$GPGGA,123456,4807.038,N,01131.000,E,1,04,1.0,545.4,M,46.9,M,,*47
-$GPRMC,123456,A,4807.038,N,01131.000,E,0.0,0.0,230394,,,*1E
-$GPGSA,A,3,,,,,,,,,,,,,1.0,1.0,1.0*30
-```
-
-### Fallback NMEA (Complete set)
-```
-$GPGGA,060143.50,4700.0000,N,12200.0000,W,1,8,1.0,10.0,M,0.0,M,,*6A
-$GPRMC,060143.50,A,4700.0000,N,12200.0000,W,0.0,0.0,110725,,*6A
-$GPVTG,0.0,T,,M,0.0,N,0.0,K,*66
-$GPGLL,4700.0000,N,12200.0000,W,060143.50,A,*6A
-$GPGSA,A,3,01,02,03,04,05,06,07,08,09,10,11,12,1.0,1.0,1.0*30
-```
-
-## Important Notes
-
-- NMEA Timestamps: All NMEA timestamps are generated in UTC and, in fallback mode, are NTP-corrected using Starlink's NTP server. For best results, ensure your system clock is set to UTC.
-- Python Version: Python 3.7+ is recommended for full compatibility with subprocess and datetime features.
-- Starlink API JSON Structure: The fallback script expects Starlink API output as seen in grpcurl results, with location under `getLocation.lla` and GPS status under `dishGetStatus.gpsStats`.
-
-## Known Limitations
-
-- Fallback NMEA output does not include velocity or heading unless Starlink API provides it.
-- If Starlink API is unreachable, fallback will use static placeholder values.
-- NTP sync requires Starlink's NTP server to be reachable from the host.
-- Only tested with u-blox 7 series GPS and Starlink Gen2/Gen3 terminals.
-
+Tested on Raspberry Pi (arm64/armhf), Ubuntu 20.04+, Debian 11+, macOS.
