@@ -18,11 +18,21 @@ sudo apt-get install -y \
     python3-venv \
     gpsd \
     gpsd-clients \
-    sntp \
     netcat-openbsd \
     bc \
     jq \
     curl
+
+# Install sntp or ntpsec-ntpdig (varies by Ubuntu version)
+if apt-cache show sntp &>/dev/null; then
+    sudo apt-get install -y sntp
+elif apt-cache show ntpsec-ntpdig &>/dev/null; then
+    sudo apt-get install -y ntpsec-ntpdig
+    # Create sntp symlink for compatibility
+    if [ ! -f /usr/bin/sntp ] && [ -f /usr/bin/ntpdig ]; then
+        sudo ln -sf /usr/bin/ntpdig /usr/bin/sntp
+    fi
+fi
 
 # Install grpcurl
 echo "Installing grpcurl..."
