@@ -111,10 +111,10 @@ check_dependencies() {
     fi
     
     if [[ "$USE_NTP_DISPLAY" == "true" ]]; then
-        if ! command_exists sntp; then
-            missing_deps+=("sntp")
+        if ! command_exists sntp && ! command_exists ntpdig; then
+            missing_deps+=("sntp or ntpdig")
         fi
-        
+
         if ! command_exists nc; then
             missing_deps+=("nc")
         fi
@@ -179,8 +179,18 @@ sync_ntp_time() {
         return 1
     fi
     
-    # Query NTP server
-    if ntp_result=$(${TIMEOUT_CMD} "$NTP_TIMEOUT" sntp -t "$NTP_TIMEOUT" "$NTP_SERVER" 2>&1); then
+    # Query NTP server (try sntp first, then ntpdig for Ubuntu 25.04+)
+    local ntp_cmd="sntp"
+    if ! command -v sntp &>/dev/null; then
+        if command -v ntpdig &>/dev/null; then
+            ntp_cmd="ntpdig"
+        else
+            NTP_AVAILABLE="false"
+            return 1
+        fi
+    fi
+
+    if ntp_result=$(${TIMEOUT_CMD} "$NTP_TIMEOUT" $ntp_cmd -t "$NTP_TIMEOUT" "$NTP_SERVER" 2>&1); then
         # Parse sntp output format:
         # "2025-12-29 09:20:42.513019 (-0500) -0.000077 +/- 0.002686 192.168.100.1 s1 no-leap"
         # The offset is the number before "+/-"

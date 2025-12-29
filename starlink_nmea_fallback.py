@@ -72,63 +72,60 @@ def sync_ntp_time():
         ntp_available = False
         return False
 
-    # Try sntp first (available on macOS and modern Linux)
-    try:
-        result = subprocess.run(
-            ['sntp', '-t', str(NTP_TIMEOUT), NTP_SERVER],
-            capture_output=True,
-            text=True,
-            timeout=NTP_TIMEOUT + 1
-        )
-
-        if result.returncode == 0 and result.stdout:
-            # Parse sntp output format:
-            # "2025-12-29 09:20:42.513019 (-0500) -0.000077 +/- 0.002686 192.168.100.1 s1 no-leap"
-            # The offset is after the timezone, look for the +/- pattern
-            import re
-            match = re.search(r'\)\s+([+-]?\d+\.?\d*)\s+\+/-', result.stdout)
-            if match:
-                try:
-                    ntp_offset = float(match.group(1))
-                    ntp_last_sync = current_time
-                    ntp_available = True
-                    print(f"NTP sync successful, offset: {ntp_offset:.6f}s")
-                    return True
-                except ValueError:
-                    pass
-
-    except subprocess.TimeoutExpired:
-        print("NTP sync timed out")
-    except FileNotFoundError:
-        # Try ntpdate as fallback (Linux only)
+    # Try sntp or ntpdig (ntpdig is the replacement on Ubuntu 25.04+)
+    import re
+    for ntp_cmd in ['sntp', 'ntpdig']:
         try:
             result = subprocess.run(
-                ['ntpdate', '-q', NTP_SERVER],
+                [ntp_cmd, '-t', str(NTP_TIMEOUT), NTP_SERVER],
                 capture_output=True,
                 text=True,
-                timeout=NTP_TIMEOUT
+                timeout=NTP_TIMEOUT + 1
             )
 
             if result.returncode == 0 and result.stdout:
-                for line in result.stdout.split('\n'):
-                    if 'offset' in line:
-                        import re
-                        match = re.search(r'offset\s+([+-]?\d+\.?\d*)', line)
-                        if match:
-                            offset_str = match.group(1)
-                            try:
-                                ntp_offset = float(offset_str)
-                                ntp_last_sync = current_time
-                                ntp_available = True
-                                print(f"NTP sync successful, offset: {ntp_offset:.3f}s")
-                                return True
-                            except ValueError:
-                                pass
+                # Parse output format:
+                # "2025-12-29 09:20:42.513019 (-0500) -0.000077 +/- 0.002686 192.168.100.1 s1 no-leap"
+                match = re.search(r'\)\s+([+-]?\d+\.?\d*)\s+\+/-', result.stdout)
+                if match:
+                    try:
+                        ntp_offset = float(match.group(1))
+                        ntp_last_sync = current_time
+                        ntp_available = True
+                        print(f"NTP sync successful, offset: {ntp_offset:.6f}s")
+                        return True
+                    except ValueError:
+                        pass
         except FileNotFoundError:
-            print("Neither sntp nor ntpdate found, NTP sync disabled")
-            return False
-        except Exception as e:
-            print(f"NTP sync failed: {e}")
+            continue  # Try next command
+        except subprocess.TimeoutExpired:
+            print("NTP sync timed out")
+            break
+
+    # Try ntpdate as final fallback
+    try:
+        result = subprocess.run(
+            ['ntpdate', '-q', NTP_SERVER],
+            capture_output=True,
+            text=True,
+            timeout=NTP_TIMEOUT
+        )
+
+        if result.returncode == 0 and result.stdout:
+            for line in result.stdout.split('\n'):
+                if 'offset' in line:
+                    match = re.search(r'offset\s+([+-]?\d+\.?\d*)', line)
+                    if match:
+                        try:
+                            ntp_offset = float(match.group(1))
+                            ntp_last_sync = current_time
+                            ntp_available = True
+                            print(f"NTP sync successful, offset: {ntp_offset:.3f}s")
+                            return True
+                        except ValueError:
+                            pass
+    except FileNotFoundError:
+        print("No NTP client found (sntp, ntpdig, or ntpdate), NTP sync disabled")
     except Exception as e:
         print(f"NTP sync failed: {e}")
 

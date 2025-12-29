@@ -60,31 +60,34 @@ def sync_ntp_time():
         ntp_available = False
         return False
 
-    try:
-        result = subprocess.run(
-            ['sntp', '-t', str(NTP_TIMEOUT), NTP_SERVER],
-            capture_output=True,
-            text=True,
-            timeout=NTP_TIMEOUT + 1
-        )
+    # Try sntp or ntpdig (ntpdig is the replacement on Ubuntu 25.04+)
+    import re
+    for ntp_cmd in ['sntp', 'ntpdig']:
+        try:
+            result = subprocess.run(
+                [ntp_cmd, '-t', str(NTP_TIMEOUT), NTP_SERVER],
+                capture_output=True,
+                text=True,
+                timeout=NTP_TIMEOUT + 1
+            )
 
-        if result.returncode == 0 and result.stdout:
-            # Parse sntp output format:
-            # "2025-12-29 09:20:42.513019 (-0500) -0.000077 +/- 0.002686 192.168.100.1 s1 no-leap"
-            # The offset is after the timezone, look for the +/- pattern
-            import re
-            match = re.search(r'\)\s+([+-]?\d+\.?\d*)\s+\+/-', result.stdout)
-            if match:
-                try:
-                    ntp_offset = float(match.group(1))
-                    ntp_last_sync = current_time
-                    ntp_available = True
-                    print(f"NTP sync successful, offset: {ntp_offset:.6f}s")
-                    return True
-                except ValueError:
-                    pass
-    except:
-        pass
+            if result.returncode == 0 and result.stdout:
+                # Parse output format:
+                # "2025-12-29 09:20:42.513019 (-0500) -0.000077 +/- 0.002686 192.168.100.1 s1 no-leap"
+                match = re.search(r'\)\s+([+-]?\d+\.?\d*)\s+\+/-', result.stdout)
+                if match:
+                    try:
+                        ntp_offset = float(match.group(1))
+                        ntp_last_sync = current_time
+                        ntp_available = True
+                        print(f"NTP sync successful, offset: {ntp_offset:.6f}s")
+                        return True
+                    except ValueError:
+                        pass
+        except FileNotFoundError:
+            continue
+        except:
+            pass
 
     ntp_available = False
     return False

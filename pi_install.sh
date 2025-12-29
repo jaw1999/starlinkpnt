@@ -24,14 +24,13 @@ sudo apt-get install -y \
     curl
 
 # Install sntp or ntpsec-ntpdig (varies by Ubuntu version)
-if apt-cache show sntp &>/dev/null; then
-    sudo apt-get install -y sntp
-elif apt-cache show ntpsec-ntpdig &>/dev/null; then
-    sudo apt-get install -y ntpsec-ntpdig
-    # Create sntp symlink for compatibility
-    if [ ! -f /usr/bin/sntp ] && [ -f /usr/bin/ntpdig ]; then
-        sudo ln -sf /usr/bin/ntpdig /usr/bin/sntp
-    fi
+echo "Installing NTP client..."
+if apt-cache show sntp 2>/dev/null | grep -q "Package: sntp"; then
+    sudo apt-get install -y sntp || echo "Warning: Could not install sntp"
+elif apt-cache show ntpsec-ntpdig 2>/dev/null | grep -q "Package: ntpsec-ntpdig"; then
+    sudo apt-get install -y ntpsec-ntpdig || echo "Warning: Could not install ntpsec-ntpdig"
+else
+    echo "Warning: No NTP client package found (sntp or ntpsec-ntpdig). NTP sync will be disabled."
 fi
 
 # Install grpcurl
