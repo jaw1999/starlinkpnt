@@ -107,20 +107,16 @@ def sync_ntp_time():
                 if 'offset' in line:
                     match = re.search(r'offset\s+([+-]?\d+\.?\d*)', line)
                     if match:
-                        offset_str = match.group(1)
                         try:
-                                ntp_offset = float(offset_str)
-                                ntp_last_sync = current_time
-                                ntp_available = True
-                                print(f"NTP sync successful, offset: {ntp_offset:.3f}s")
-                                return True
-                            except ValueError:
-                                pass
-        except FileNotFoundError:
-            print("Warning: Neither sntp nor ntpdate found, using system time")
-            return False
-        except Exception as e:
-            print(f"Warning: NTP sync failed: {e}")
+                            ntp_offset = float(match.group(1))
+                            ntp_last_sync = current_time
+                            ntp_available = True
+                            print(f"NTP sync successful, offset: {ntp_offset:.3f}s")
+                            return True
+                        except ValueError:
+                            pass
+    except FileNotFoundError:
+        pass  # No ntpdate either, that's OK
     except Exception as e:
         print(f"Warning: NTP sync failed: {e}")
 
